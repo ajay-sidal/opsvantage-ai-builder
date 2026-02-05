@@ -15,8 +15,57 @@ export async function POST(req: Request) {
   const body = await req.json()
   const { businessName, industry, goal } = body
 
-  // TODO: later – look up real User by email and create Project + AiTask
-  console.log("Onboarding received:", { businessName, industry, goal })
+  // 1. Find or create the user
+  const user = await prisma.user.upsert({
+    where: { email: session.user.email },
+    update: {},
+    create: {
+      email: session.user.email,
+      name: session.user.email.split("@")[0]
+    }
+  })
 
-  return NextResponse.json({ ok: true })
+  // 2. Create a new Project for this user
+  const project = await prisma.project.create({
+    data: {
+      name: businessName,
+      userId: user.id,
+      subdomain: `${businessName.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`
+    }
+  })
+
+  // Create a unique dataset name
+  const datasetName = `dataset_${project.id}`
+
+  // Call the dataset creation API
+  await fetch(`${process.env.NEXT_PUBLIC_BASE_URL}/api/sanity/create-dataset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ dataset: datasetName })
+  })
+
+  // Save dataset name to project
+  await prisma.project.update({
+    where: { id: project.id },
+    data: { sanityDataset: datasetName }
+  })
+
+  // 3. Create an AI Task for website generation
+  const aiTask = await prisma.aiTask.create({
+    data: {
+      projectId: project.id,
+      type: "SITE_GEN",
+      payload: {
+        businessName,
+        industry,
+        goal
+      }
+    }
+  })
+
+  return NextResponse.json({
+    ok: true,
+    projectId: project.id,
+    aiTaskId: aiTask.id
+  })
 }

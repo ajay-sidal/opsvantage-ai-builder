@@ -1,0 +1,53 @@
+import { createSanityClient } from "@/lib/sanity"
+import { PrismaClient } from "@prisma/client"
+
+const prisma = new PrismaClient()
+
+export default async function DynamicPage({ params }: any) {
+  const { subdomain, slug } = params
+
+  // 1. Find the project by subdomain
+  const project = await prisma.project.findUnique({
+    where: { subdomain }
+  })
+
+  if (!project || !project.sanityDataset) {
+    return <div>Site not found</div>
+  }
+
+  // 2. Fetch page content from Sanity
+  const sanity = createSanityClient(project.sanityDataset)
+
+  const page = await sanity.fetch(
+    `*[_type == "page" && slug.current == $slug][0]`,
+    { slug }
+  )
+
+  if (!page) {
+    return <div>Page not found</div>
+  }
+
+  // 3. Render sections
+  return (
+    <div>
+      {page.sections?.map((section: any, index: number) => {
+        switch (section._type) {
+          case "heroSection":
+            return (
+              <div key={index} className="p-20 text-center bg-gray-100">
+                <h1 className="text-4xl font-bold">{section.headline}</h1>
+                <p className="mt-4 text-lg">{section.subheadline}</p>
+              </div>
+            )
+
+          default:
+            return (
+              <div key={index} className="p-10">
+                Unknown section type: {section._type}
+              </div>
+            )
+        }
+      })}
+    </div>
+  )
+}
